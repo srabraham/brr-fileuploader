@@ -1,10 +1,8 @@
 package main
 
 import (
-	"crypto/rand"
 	"embed"
 	_ "embed"
-	"flag"
 	"io"
 	"log"
 	"net"
@@ -15,22 +13,37 @@ import (
 	"time"
 )
 
-var (
-	filePath       = flag.String("filepath", "", "Absolute path to the file that this program will manage, e.g. /home/sean/myfile.pdf")
-	secret         = flag.String("secret", rand.Text(), "Secret string a client must provide in the web page")
-	port           = flag.Int("port", 0, "Port to listen on. Defaults to picking a random port.")
-	maxRequestSize = flag.Int64("max-request-size", 100<<20, "Max request size in bytes")
-)
+const maxRequestSize int64 = 100 << 20
 
 //go:embed index.html
 var htmlFile embed.FS
 
 func main() {
-	flag.Parse()
-	if *filePath == "" {
-		log.Fatal("--filepath is required")
+	var err error
+
+	filepath := ""
+	if os.Getenv("FILE_UPLOADER_FILEPATH") != "" {
+		filepath = os.Getenv("FILE_UPLOADER_FILEPATH")
 	}
-	log.Printf("Will write to file %v, using secret %v", *filePath, *secret)
+	if filepath == "" {
+		log.Fatal("FILE_UPLOADER_FILEPATH is required")
+	}
+
+	secret := ""
+	if os.Getenv("FILE_UPLOADER_SECRET") != "" {
+		secret = os.Getenv("FILE_UPLOADER_SECRET")
+	}
+	if secret == "" {
+		log.Fatal("FILE_UPLOADER_SECRET is required")
+	}
+
+	port := 0
+	if os.Getenv("FILE_UPLOADER_PORT") != "" {
+		port, err = strconv.Atoi(os.Getenv("FILE_UPLOADER_PORT"))
+		must(err)
+	}
+
+	log.Printf("Will write to file %v, using secret %v", filepath, secret)
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServerFS(htmlFile))
@@ -42,15 +55,15 @@ func main() {
 		mut.Lock()
 		defer mut.Unlock()
 
-		r.Body = http.MaxBytesReader(w, r.Body, *maxRequestSize)
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
 
-		err := r.ParseMultipartForm(*maxRequestSize) // allow using a maximum of 100 MiB when parsing
+		err := r.ParseMultipartForm(maxRequestSize) // allow using a maximum of 100 MiB when parsing
 		if err != nil {
 			writeResponse(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		clientSecret := r.PostForm.Get("secret")
-		if clientSecret != *secret {
+		if clientSecret != secret {
 			writeResponse(w, "incorrect secret", http.StatusUnauthorized)
 			return
 		}
@@ -59,7 +72,7 @@ func main() {
 			writeResponse(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		outFile, err := os.Create(*filePath)
+		outFile, err := os.Create(filepath)
 		if err != nil {
 			writeResponse(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -78,7 +91,7 @@ func main() {
 		WriteTimeout:   1 * time.Minute,
 		MaxHeaderBytes: 1 << 20,
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(*port)))
+	listener, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
 	must(err)
 	addr := net.JoinHostPort("", strconv.FormatInt(int64(listener.Addr().(*net.TCPAddr).Port), 10))
 	log.Printf("Listening on %v", addr)
