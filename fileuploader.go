@@ -1,8 +1,8 @@
 package main
 
 import (
-	"embed"
 	_ "embed"
+	"github.com/srabraham/brr-fileuploader/web"
 	"io"
 	"log"
 	"net"
@@ -14,9 +14,6 @@ import (
 )
 
 const maxRequestSize int64 = 100 << 20
-
-//go:embed index.html
-var htmlFile embed.FS
 
 func main() {
 	var err error
@@ -46,12 +43,30 @@ func main() {
 	log.Printf("Will write to file %v, using secret %v", filepath, secret)
 
 	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServerFS(htmlFile))
+	mux.Handle("/", http.FileServerFS(web.Files))
+	mux.HandleFunc("/upload", uploadHandler(secret, filepath))
+	mux.HandleFunc("/payload", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath)
+	})
 
+	server := &http.Server{
+		Handler:        mux,
+		ReadTimeout:    1 * time.Minute,
+		WriteTimeout:   1 * time.Minute,
+		MaxHeaderBytes: 1 << 20,
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
+	must(err)
+	addr := net.JoinHostPort("", strconv.FormatInt(int64(listener.Addr().(*net.TCPAddr).Port), 10))
+	log.Printf("Listening on %v", addr)
+	must(server.Serve(listener))
+}
+
+func uploadHandler(secret string, filepath string) http.HandlerFunc {
 	// mut is used to only allow one caller to upload at a time
 	var mut sync.Mutex
 
-	mux.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		mut.Lock()
 		defer mut.Unlock()
 
@@ -84,18 +99,7 @@ func main() {
 			return
 		}
 		writeResponse(w, "File uploaded successfully", http.StatusCreated)
-	})
-	server := &http.Server{
-		Handler:        mux,
-		ReadTimeout:    1 * time.Minute,
-		WriteTimeout:   1 * time.Minute,
-		MaxHeaderBytes: 1 << 20,
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
-	must(err)
-	addr := net.JoinHostPort("", strconv.FormatInt(int64(listener.Addr().(*net.TCPAddr).Port), 10))
-	log.Printf("Listening on %v", addr)
-	must(server.Serve(listener))
 }
 
 func writeResponse(w http.ResponseWriter, errMsg string, code int) {
