@@ -2,7 +2,6 @@ package main
 
 import (
 	_ "embed"
-	"github.com/srabraham/brr-fileuploader/web"
 	"io"
 	"log"
 	"net"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/srabraham/brr-fileuploader/web"
 )
 
 const maxRequestSize int64 = 100 << 20
@@ -63,12 +64,12 @@ func main() {
 }
 
 func uploadHandler(secret string, filepath string) http.HandlerFunc {
-	// mut is used to only allow one caller to upload at a time
-	var mut sync.Mutex
+	// mu is used to only allow one caller to upload at a time
+	var mu sync.Mutex
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		mut.Lock()
-		defer mut.Unlock()
+		mu.Lock()
+		defer mu.Unlock()
 
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
 
