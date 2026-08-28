@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/srabraham/brr-fileuploader/web"
+	"golang.org/x/time/rate"
 )
 
 const maxRequestSize int64 = 100 << 20
@@ -54,6 +55,7 @@ func main() {
 		Handler:        mux,
 		ReadTimeout:    1 * time.Minute,
 		WriteTimeout:   1 * time.Minute,
+		IdleTimeout:    1 * time.Minute,
 		MaxHeaderBytes: 1 << 20,
 	}
 	listener, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
@@ -66,8 +68,14 @@ func main() {
 func uploadHandler(secret string, filepath string) http.HandlerFunc {
 	// mu is used to only allow one caller to upload at a time
 	var mu sync.Mutex
+	// limiter helps prevent excessive attempts to guess the secret
+	limiter := rate.NewLimiter(rate.Every(200*time.Millisecond), 5)
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, "Too many attempts recently to upload a file. Try again", http.StatusTooManyRequests)
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 
