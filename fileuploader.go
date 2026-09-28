@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/srabraham/brr-fileuploader/web"
+	"go.seanabraham.com/brr-fileuploader/web"
 	"golang.org/x/time/rate"
 )
 
